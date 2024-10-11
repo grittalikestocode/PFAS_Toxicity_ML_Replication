@@ -1,0 +1,24 @@
+name: ai4pfas
+channels:
+- rdkit
+- conda-forge
+- pytorch
+dependencies:
+- pip
+- rdkit
+- numpy
+- ipython
+- jupyter
+- matplotlib
+- numpy
+- pandas
+- scipy
+- scikit-learn
+- pytorch
+- autograd
+- pip:
+  - gpflow
+  - torch-geometric
+  # DOES NOT CORRESPOND tensorflow==2.3, changed to: 
+  - tensorflow==2.17
+  - tensorflow-probability==0.11.1

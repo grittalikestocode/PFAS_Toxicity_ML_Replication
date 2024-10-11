@@ -1,0 +1,2 @@
+model_checkpoint_path: "orig_transfer_sn_mordred4.chkpt"
+all_model_checkpoint_paths: "orig_transfer_sn_mordred4.chkpt"
