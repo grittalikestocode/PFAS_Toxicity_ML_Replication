@@ -562,7 +562,7 @@ if __name__ == "__main__":
         kfold = CrossValidator(
 		splits = 5, 
 		sampling_type = sampling_type,
-		seed = nseed
+		seed = 147
 		)
 		
         all_results = []
