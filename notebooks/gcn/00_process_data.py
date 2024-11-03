@@ -81,4 +81,12 @@ if __name__ == "__main__":
     ldtoxdb['EPA'] = convert_to_epa(ldtoxdb['NeglogLD50'], smiles=ldtoxdb['smiles'])
 
     ldtoxdb.columns = ldtoxdb.columns.str.lower()
-    ldtoxdb.to_csv('../../data/full_dataset.csv', index=False)
+
+    # Separate PFAS and PFAS-like from data
+    pfas_test = ldtoxdb[(ldtoxdb['is_pfas']) | (ldtoxdb['is_pfas_like'])]
+
+    # The rest of the DataFrame where both columns are False
+    training = ldtoxdb[~((ldtoxdb['is_pfas']) | (ldtoxdb['is_pfas_like']))]
+
+    training.to_csv('../../data/training_dataset.csv', index=False)
+    pfas_test.to_csv('../../data/test_pfas_dataset.csv', index=False)
