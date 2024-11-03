@@ -663,7 +663,6 @@ if __name__ == "__main__":
     all_seeds_str = '_'.join(all_seeds)
     all_results_gcns = pd.concat(gcn_results.values(), ignore_index=True)
     all_results_gcns.groupby('smiles').agg(
-            {**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
-            **{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
+            {**{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
         ).reset_index()
     all_results_gcns.to_csv('../../data/replication_gcn/classification_gcn_{}_{}_training.csv'.format(all_seeds_str, args.split))
