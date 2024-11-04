@@ -537,16 +537,16 @@ if __name__ == "__main__":
 
 	# Load data
     data_x, data_y, epa = load_data(task_type='classification', file='../../data/training_dataset.csv')
-    data_x, val_x, data_y, val_y, epa, val_epa = train_test_split(data_x, data_y, epa, test_size=0.2, random_state=42)
+    #data_x, val_x, data_y, val_y, epa, val_epa = train_test_split(data_x, data_y, epa, test_size=0.2, random_state=42)
 
     # Training data split into training and test
-    val_df_x = pd.DataFrame(val_x, columns=['smiles']) 
-    val_df_y = pd.DataFrame(val_y, columns=['actual_neglogld50'])
-    val_df_epa = pd.DataFrame(val_epa, columns=['actual_epa'])
+    #val_df_x = pd.DataFrame(val_x, columns=['smiles']) 
+    #val_df_y = pd.DataFrame(val_y, columns=['actual_neglogld50'])
+    #val_df_epa = pd.DataFrame(val_epa, columns=['actual_epa'])
 
     # Concatenate them along the columns
-    val_df = pd.concat([val_df_x, val_df_y, val_df_epa], axis=1)
-    val_df.to_csv('../../data/replication_gcn/classification_test_data.csv', index=False)
+    #val_df = pd.concat([val_df_x, val_df_y, val_df_epa], axis=1)
+    #val_df.to_csv('../../data/replication_gcn/classification_test_data.csv', index=False)
 
     # PFAS data for further test
     pfas_x, pfas_y, pfas_epa = load_data(task_type='classification', file='../../data/test_pfas_dataset.csv')
@@ -634,17 +634,17 @@ if __name__ == "__main__":
         gcn_results[i] = grouped_df
 
         # On test data
-        x_val=val_x.flatten()
-        y_hat_val = model.predict(x_val)
+        #x_val=val_x.flatten()
+        #y_hat_val = model.predict(x_val)
 
-        df_results = pd.DataFrame({
-            'smiles': x_val.flatten(),
-            'predicted_epa': y_hat_val.flatten(),
-            'actual_epa': val_epa.flatten()
-        })
+        #df_results = pd.DataFrame({
+        #    'smiles': x_val.flatten(),
+        #    'predicted_epa': y_hat_val.flatten(),
+        #    'actual_epa': val_epa.flatten()
+        #})
 
         # Save to a CSV file
-        df_results.to_csv('../../data/replication_gcn/classification_gcn_{}_{}_test.csv'.format(nseed, args.split), index=False)
+        #df_results.to_csv('../../data/replication_gcn/classification_gcn_{}_{}_test.csv'.format(nseed, args.split), index=False)
 
         # On PFAS data
         pfas_test=pfas_x.flatten()

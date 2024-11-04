@@ -61,6 +61,7 @@ if __name__ == "__main__":
     ldtoxdb = pd.read_csv('../../data/ldtoxdb-mordred.csv').dropna(axis=1)
     # SMILES CANONIZATION
     ldtoxdb['smiles'] = safe_smiles(ldtoxdb.SMI)
+    ldtoxdb = ldtoxdb.dropna(subset=['smiles'])
 
     # Get other info
     ldtoxdb['rd_mol'] = ldtoxdb.smiles.apply(Chem.MolFromSmiles)
