@@ -27,7 +27,7 @@ def convert_to_epa(neglog_values, smiles):
     epa_categories = pd.cut(mgkg_values, labels=[0,1,2,3], bins=[-np.inf, 50, 500, 5000, np.inf])
     return epa_categories
 
-def safe_smiles(smiles_series):
+def safe_smiles(smiles_series, remove_stereochemistry = True):
     """
     Converts a series of SMILES strings into canonical SMILES after validating 
     the conversion from SMILES to molecule and back to SMILES.
@@ -44,8 +44,12 @@ def safe_smiles(smiles_series):
             # Convert SMILES to molecule
             mol = Chem.MolFromSmiles(smiles)
             if mol is not None:
-                # Convert molecule back to canonical SMILES
-                return Chem.MolToSmiles(mol)
+                # Convert molecule back to canonical SMILES but
+                # first get rid off stereochemistry
+                if remove_stereochemistry:
+                    return Chem.MolToSmiles(mol, isomericSmiles=False)
+                else:
+                    return Chem.MolToSmiles(mol)
             else:
                 raise ValueError("Invalid molecule")
         except Exception as e:
@@ -54,7 +58,6 @@ def safe_smiles(smiles_series):
             return None
     
     return smiles_series.apply(lambda smiles: safe_smiles_to_smiles(smiles, smiles_series.index[smiles_series == smiles][0]))
-
 
 if __name__ == "__main__":
     # Read the data with smiles and LD50
@@ -71,10 +74,13 @@ if __name__ == "__main__":
     ldtoxdb['n_cf_bonds'] = ldtoxdb.rd_mol.apply(count_cf_bonds)
     ldtoxdb['is_pfas_like'] = ldtoxdb['n_cf_bonds'] >= 2
 
+    ldtoxdb = ldtoxdb.drop_duplicates(subset='smiles', keep='first')
+
     # Read the PFAS dataset and convert smiles
     pfas8k = pd.read_csv('../../data/pfas8k-mordred.csv')
     pfas8k['canon_smi'] = safe_smiles(pfas8k.SMILES)
     pfas8k = pfas8k.dropna(subset=['canon_smi'])
+    pfas8k = pfas8k.drop_duplicates(subset='canon_smi', keep='first')
 
     # Classify the LDTOXDB
     ldtoxdb['is_pfas'] = ldtoxdb.smiles.isin(pfas8k.canon_smi)
@@ -82,6 +88,8 @@ if __name__ == "__main__":
     ldtoxdb['EPA'] = convert_to_epa(ldtoxdb['NeglogLD50'], smiles=ldtoxdb['smiles'])
 
     ldtoxdb.columns = ldtoxdb.columns.str.lower()
+
+    ldtoxdb.to_csv('../../data/full_dataset.csv', index=False)
 
     # Separate PFAS and PFAS-like from data
     pfas_test = ldtoxdb[(ldtoxdb['is_pfas']) | (ldtoxdb['is_pfas_like'])]
