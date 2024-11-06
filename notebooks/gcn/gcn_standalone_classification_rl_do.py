@@ -37,7 +37,7 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import spearmanr
 import seaborn as sns
 
-def load_data(task_type, random_state = 42):
+def load_data(task_type, random_state = 57):
     # Load the dataset
     ldtoxdb = pd.read_csv('../../data/full_dataset.csv')
 
