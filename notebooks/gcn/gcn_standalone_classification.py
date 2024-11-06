@@ -157,7 +157,7 @@ def get_dataloader(df, index, target, mol_column, batch_size, y_scaler):
     for data, y_i in zip(x, y):
         data.y = torch.tensor([y_i], dtype=torch.float)
     data_loader = DataLoader(x, batch_size=batch_size,
-                             shuffle=True, drop_last=True)
+                             shuffle=True, drop_last=False)
     return data_loader
 
 def reg_stats(y_true, y_pred):
@@ -186,19 +186,19 @@ def train_step(model, data_loader, optimizer, scheduler, device):
     return avg_loss
 
 def compute_test_loss(model, data_loader, device):
-        model.eval()  # Set model to evaluation mode
-        total_loss = 0
+    model.eval()  # Set model to evaluation mode
+    total_loss = 0
 
-        with torch.no_grad():
-            for data in data_loader:
-                data = data.to(device)
-                output = model(data)  # Forward pass
-                loss = GCN.criterion(output, data.y)  # Compute loss
-                total_loss += loss.item()
+    with torch.no_grad():
+        for data in data_loader:
+            data = data.to(device)
+            output = model(data)  
+            loss = GCN.criterion(output, data.y)  # Compute loss
+            total_loss += loss.item()
 
-        # Average loss for the validation set
-        avg_loss = total_loss / len(data_loader)
-        return avg_loss
+    # Average loss for the validation set
+    avg_loss = total_loss / len(data_loader)
+    return avg_loss
 
 def get_embeddings(model, data_loader, y_scaler, device):
     with torch.no_grad():
@@ -416,7 +416,7 @@ class GCN:
             test_data.y = torch.tensor(test_y, dtype=torch.long)
 
         test_loader = DataLoader(x_test, batch_size=self.batch_size,
-            shuffle=False, drop_last=True)
+            shuffle=False, drop_last=False)
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = molan_model_GCN(hparams, self.node_dim, self.edge_dim, self.num_classes).to(self.device)
@@ -433,7 +433,7 @@ class GCN:
             self.train_loss.append([train_step(self.model, loader, optimizer, scheduler, self.device)])
             
             if i in test_epochs:
-                self.test_loss.append([compute_test_loss(self.model,test_loader,self.device)])
+                self.test_loss.append([compute_test_loss(self.model, test_loader, self.device)])
 
     def predict(self, x_in):
         # Prepare input data for prediction
@@ -630,7 +630,7 @@ if __name__ == "__main__":
         model.seed = nseed
         model.epochs = args.epochs
         model.test_data = (val_x, val_y)
-        initialize_weights(model)
+        #initialize_weights(model)
 
         for fold_no, (train, test) in folds:           
             x_train, y_train, smiles_train = train
