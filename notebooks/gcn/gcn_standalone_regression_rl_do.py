@@ -456,7 +456,7 @@ class GCN:
                         patience = 20,
                         verbose = True)
         
-        test_epochs = list(range(0, 501, 25))
+        test_epochs = list(range(0, 501, 20))
 
         for i in range(self.epochs):
             print('Step %d/%d' % (i+1, self.epochs))
