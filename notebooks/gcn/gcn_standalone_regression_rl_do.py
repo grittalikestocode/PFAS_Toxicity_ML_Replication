@@ -37,7 +37,9 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import spearmanr
 import seaborn as sns
 
-def load_data(task_type, random_state = 57):
+import pickle
+
+def load_data(task_type, random_state = 42):
     # Load the dataset
     ldtoxdb = pd.read_csv('../../data/full_dataset.csv')
 
@@ -45,11 +47,11 @@ def load_data(task_type, random_state = 57):
     df_true = ldtoxdb[ldtoxdb['is_pfas_like'] == True]
     df_false = ldtoxdb[ldtoxdb['is_pfas_like'] == False]
         
-    # Split the `True` 'pfas_like' samples, making sure exactly 490 go into the training set
-    train_true, val_true = train_test_split(df_true, test_size=1 - (490 / len(df_true)), random_state=random_state)
+    # Split the `True` 'pfas_like' samples, making sure exactly 460 go into the training set
+    train_true, val_true = train_test_split(df_true, test_size=0.1, random_state=random_state, stratify=df_true['epa'])
 
     # Split the `False` 'pfas_like' samples into training and validation sets (randomly)
-    train_false, val_false = train_test_split(df_false, test_size=0.2, random_state=random_state)  # 80%-20% split
+    train_false, val_false = train_test_split(df_false, test_size=0.2, random_state=random_state, stratify=df_false['epa'])  # 80%-20% split
 
     # Combine the splits
     train_data = pd.concat([train_true, train_false], axis=0)
@@ -592,7 +594,7 @@ if __name__ == "__main__":
     # Parse arguments
     args = parser.parse_args()
 
-    folder_paths = ['../../data/replication_gcn','../../data/replication_gcn/loss','../../data/replication_gcn/graph_embeddings']
+    folder_paths = ['../../data/replication_gcn/final_model','../../data/replication_gcn/final_model/loss','../../data/replication_gcn/final_model/graph_embeddings']
 
     for path in folder_paths:
         # Check if the folder exists, and create it if it does not
@@ -622,7 +624,7 @@ if __name__ == "__main__":
 
     # Concatenate them along the columns
     val_df = pd.concat([val_df_x, val_df_y, val_df_epa], axis=1)
-    val_df.to_csv('../../data/replication_gcn/regression_validation_data.csv', index=False)
+    val_df.to_csv('../../data/replication_gcn/final_model/regression_validation_data.csv', index=False)
 
 	# Set seed and start dict with results
     all_seeds = list()
@@ -725,11 +727,18 @@ if __name__ == "__main__":
         })
 
         # Save to a CSV file if needed
-        df_results.to_csv('../../data/replication_gcn/regression_gcn_{}_{}_validation.csv'.format(nseed, args.split), index=False)
+        df_results.to_csv('../../data/replication_gcn/final_model/regression_gcn_{}_{}_validation.csv'.format(nseed, args.split), index=False)
 
-        pd.DataFrame(model.train_loss).to_csv('../../data/replication_gcn/loss/regression_gcn_{}_{}_train.csv'.format(nseed, args.split))
-        pd.DataFrame(model.test_loss).to_csv('../../data/replication_gcn/loss/regression_gcn_{}_{}_test.csv'.format(nseed, args.split))
-
+        pd.DataFrame(model.train_loss).to_csv('../../data/replication_gcn/final_model/loss/regression_gcn_{}_{}_train.csv'.format(nseed, args.split))
+        pd.DataFrame(model.test_loss).to_csv('../../data/replication_gcn/final_model/loss/regression_gcn_{}_{}_test.csv'.format(nseed, args.split))
+       
+        model.test_loss = []
+        model.train_loss = []
+        embs_array = models.embs_array
+       
+        with open('../../data/replication_gcn/final_model/graph_embeddings/regression_gcn_{}_{}_graphs.pickle'.format(nseed, args.split), 'wb') as handle:
+            pickle.dump(embs_array, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    
     # Save
     all_seeds_str = '_'.join(all_seeds)
     all_results_gcns = pd.concat(gcn_results.values(), ignore_index=True)
@@ -737,4 +746,4 @@ if __name__ == "__main__":
             {**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
             **{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
         ).reset_index()
-    all_results_gcns.to_csv('../../data/replication_gcn/regression_gcn_{}_{}_training.csv'.format(all_seeds_str, args.split))
+    all_results_gcns.to_csv('../../data/replication_gcn/final_model/regression_gcn_{}_{}_training.csv'.format(all_seeds_str, args.split))
