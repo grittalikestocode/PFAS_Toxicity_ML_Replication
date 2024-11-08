@@ -668,6 +668,7 @@ if __name__ == "__main__":
 			
         overall_results = agg_results.pivot_table(index='model', aggfunc=np.mean)
         overall_results.to_csv('../../data/benchmark-models/classification_{}_predictions_rep_{}_allfolds_training_lr_do.csv'.format(sampling_type, nseed))
+        agg_results.to_csv('../../data/replication_gcn/final_model/classification_accuracy_allfolds_{}_{}.csv'.format(sampling_type, nseed))
 
         concatenated_df = pd.concat(all_results, ignore_index=True)
         epa_columns = concatenated_df.filter(like='epa').columns  
