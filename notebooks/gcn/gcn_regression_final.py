@@ -407,7 +407,7 @@ class GCN:
     residual = False
     learning_rate = 0.001
     batch_size = 64
-    epochs = 500
+    epochs = 200
     node_dim = n_atom_features()
     edge_dim = n_bond_features()
     val_data = None
@@ -553,11 +553,14 @@ def spearman_correlation_scorer(actual_y, pred_y):
     rho, _ = spearmanr(actual_y, pred_y)
     return rho
 
-def initialize_weights(model):
+def initialize_weights(model, seed):
     '''Takes in a module and initializes all linear layers with weight
     values taken from a normal distribution.
     from https://stackoverflow.com/a/55546528
     '''
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     classname = model.__class__.__name__
     # for every Linear layer in a model..
     if classname.find('Linear') != -1:
@@ -620,147 +623,120 @@ if __name__ == "__main__":
 
     # Concatenate them along the columns
     val_df = pd.concat([val_df_x, val_df_y, val_df_epa], axis=1)
-    val_df.to_csv('../../data/replication_gcn/final_model/regression_validation_data.csv', index=False)
+    val_df.to_csv('../../data/replication_gcn/final_model/regression_test_data.csv', index=False)
 
-	# Set seed and start dict with results
-    all_seeds = list()
-    gcn_results = dict()
+    learning_rates = {
+        'lr_rep':0.008117123009364938,
+        'lr0001':0.001,
+        'lr001':0.01
+    }
 
-    for i in range(3):
+    dimensions = {
+        'dim100':100,
+        'dim50':50
+    }
+
+        # Experiments
+    for lr_name, lr in learning_rates.items(): # Diff learning rates
+
+        for dim_name, dim_value in dimensions.items(): # Dimensions
+            
+            nseed=222
 		
-        # Random seed
-        nseed = np.random.randint(0, 10000)
+            kfold = CrossValidator(
+            splits = 5, 
+            sampling_type = sampling_type,
+            seed = nseed
+            )
+            
+            all_results = {}
+            all_results_df = []
+            
+            folds = enumerate(kfold.get_folds(
+            x=data_x,
+            y=data_y,
+            c=epa))
 
-        all_seeds.append(str(nseed)) # to keep track of whayt seeds were used
+            model = benchmark['model']()
+            model.seed = nseed
+            model.epochs = args.epochs
+            model.learning_rate = lr
+            model.emb_dim = dim_value
 
-        kfold = CrossValidator(
-		splits = 5, 
-		sampling_type = sampling_type,
-		seed = 147
-		)
-		
-        all_results = {}
-        all_results_df = []
-		
-        folds = enumerate(kfold.get_folds(
-        x=data_x,
-        y=data_y,
-        c=epa))
+            initialize_weights(model, seed=nseed)
 
-        print('Working with seed {}'.format(nseed))
+            for fold_no, (train, test) in folds:           
+                x_train, y_train, smiles_train = train
+                x_test, y_test, smiles_test = test
 
-        model = benchmark['model']()
-        model.seed = nseed
-        model.epochs = args.epochs
-        initialize_weights(model)
+                y_train = scaler.fit_transform(y_train)
 
-        for fold_no, (train, test) in folds:           
-            x_train, y_train, smiles_train = train
-            x_test, y_test, smiles_test = test
+                # For loss curve
+                model.val_data = (x_test, y_test)
 
-            y_train = scaler.fit_transform(y_train)
+                model.fit(x_train, y_train)
+                fn = 'gcn_regression_fold' + str(fold_no) + '_' + sampling_type + '_seed_' + str(nseed) + '_lr_' + lr_name + '_dim_' + dim_name
+                model.save_weights('../../data/replication_gcn/final_model/chkpts/{}.chkpt'.format(fn))
+                
+                y_hat = scaler.inverse_transform(model.predict(x_test))
 
-            # For loss curve
-            model.val_data = (x_test, y_test)
+                results = pd.DataFrame({
+                    'smiles': smiles_test.flatten(),
+                    'prediction_neglogld50': y_hat.flatten(),
+                    'prediction_mgkg': converter.convert_to_mgkg(y_hat, smiles_test),
+                    'prediction_epa': converter.convert_to_epa(y_hat, smiles_test),
+                    'actual_neglogld50': y_test.flatten(),
+                    'actual_mgkg': converter.convert_to_mgkg(y_test, smiles_test),
+                    'actual_epa': converter.convert_to_epa(y_test, smiles_test),
+                })
 
-            model.fit(x_train, y_train)
-            fn = 'gcn_regression_fold' + str(fold_no) + '_' + sampling_type + '_seed_' + str(nseed)
-            model.save_weights('../../data/replication_gcn/final_model/chkpts/{}.chkpt'.format(fn))
-			
-            y_hat = scaler.inverse_transform(model.predict(x_test))
+                results.to_csv('../../data/replication_gcn/final_model/benchmark-models/{}_predictions_train.csv'.format(fn))
+                
+                fold_acc = np.sum(results['actual_epa'] == results['prediction_epa']) / len(results)
+                all_results[fn]=fold_acc 
+                
+                all_results_df.append(results)
 
-            results = pd.DataFrame({
-				'smiles': smiles_test.flatten(),
-				'prediction_neglogld50': y_hat.flatten(),
-				'prediction_mgkg': converter.convert_to_mgkg(y_hat, smiles_test),
-				'prediction_epa': converter.convert_to_epa(y_hat, smiles_test),
-				'actual_neglogld50': y_test.flatten(),
-				'actual_mgkg': converter.convert_to_mgkg(y_test, smiles_test),
-				'actual_epa': converter.convert_to_epa(y_test, smiles_test),
-			})
+                pd.DataFrame(model.train_loss).to_csv('../../data/replication_gcn/final_model/loss/{}_loss_train.csv'.format(fn))
+                pd.DataFrame(model.val_loss).to_csv('../../data/replication_gcn/final_model/loss/{}_loss_test.csv'.format(fn))
+            
+                model.val_loss = []
+                model.train_loss = []
+                #embs_array = model.graph_embs
+            
+                #with open('../../data/replication_gcn/final_model/graph_embeddings/regression_gcn_{}_{}_graphs.pickle'.format(nseed, args.split), 'wb') as handle:
+                # pickle.dump(embs_array, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-            results.to_csv('../../data/replication_gcn/final_model/benchmark-models/regression_{}_predictions_rep_{}_{}_ontrain.csv'.format(sampling_type, nseed, fold_no))
-            fold_acc = np.sum(results['actual_epa'] == results['prediction_epa']) / len(results)
-            all_results[fn]=fold_acc 
-            all_results_df.append(results)
+                    
+            # Best model
+            best_model = max(all_results, key=all_results.get)
+            
+            filename = "../../data/replication_gcn/final_model/best_models_per_exp.txt"
+            line_to_append = best_model +' '+ str(all_results[best_model]) + '\n'
 
-            pd.DataFrame(model.train_loss).to_csv('../../data/replication_gcn/final_model/loss/regression_gcn_{}_{}_fold{}_train.csv'.format(nseed, args.split, fold_no))
-            pd.DataFrame(model.val_loss).to_csv('../../data/replication_gcn/final_model/loss/regression_gcn_{}_{}_fold{}_test.csv'.format(nseed, args.split, fold_no))
-        
-            model.val_loss = []
-            model.train_loss = []
-            embs_array = model.graph_embs
-        
-            with open('../../data/replication_gcn/final_model/graph_embeddings/regression_gcn_{}_{}_graphs.pickle'.format(nseed, args.split), 'wb') as handle:
-                pickle.dump(embs_array, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            # Open the file in append mode ('a') or create it if it doesn't exist
+            with open(filename, "a") as file:
+                # Append the line to the file
+                file.write(line_to_append)
 
-            # On actual TEST data
-            y_hat_val = scaler.inverse_transform(model.predict(val_x))
+            agg_results = pd.DataFrame()
 
-            df_results = pd.DataFrame({
-                'smiles': val_x.flatten(),
-                'predicted_neglog': y_hat_val.flatten(),
-                'actual_neglog': val_y.flatten(),
-                'predicted_epa': converter.convert_to_epa(y_hat_val, val_x),
-                'actual_epa': val_epa.flatten()
-            })
+            for df in all_results_df:
+                required_columns = {'actual_neglogld50', 'prediction_neglogld50', 'actual_epa', 'prediction_epa'}
+                
+                if not required_columns.issubset(df.columns):
+                    raise ValueError("One or more required columns are missing from the input DataFrame.")
 
-            # Save to a CSV file if needed
-            df_results.to_csv('../../data/replication_gcn/final_model/regression_gcn_{}_{}_fold{}_validation.csv'.format(nseed, args.split, fold_no), index=False)
-		
-        # Best model GCN
-        best_model = max(all_results, key=all_results.get)
-        
-        filename = "../../data/replication_gcn/final_model/best_models_per_gcn.txt"
-        line_to_append = best_model +' '+ str(all_results[best_model]) + '\n'
-
-        # Open the file in append mode ('a') or create it if it doesn't exist
-        with open(filename, "a") as file:
-            # Append the line to the file
-            file.write(line_to_append)
-
-        agg_results = pd.DataFrame()
-
-        for df in all_results_df:
-            required_columns = {'actual_neglogld50', 'prediction_neglogld50', 'actual_epa', 'prediction_epa'}
-			
-            if not required_columns.issubset(df.columns):
-                raise ValueError("One or more required columns are missing from the input DataFrame.")
-
-            temp_df = pd.DataFrame([{
-					'model': 'GCN',
-					'r2': r2_score(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'mae': mean_absolute_error(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'variance': variance_of_residuals(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'rmse': root_mean_squared_error(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'rho': spearman_correlation_scorer(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'accuracy': np.sum(df['actual_epa'] == df['prediction_epa']) / len(df)
-				}])
-			
-            agg_results = pd.concat([agg_results, temp_df], ignore_index=True)
-			
-        overall_results = agg_results.pivot_table(index='model', aggfunc=np.mean)
-        overall_results.to_csv('../../data/replication_gcn/final_model/benchmark-models/regression_{}_predictions_rep_{}_allfolds_training.csv'.format(sampling_type, nseed))
-        agg_results.to_csv('../../data/replication_gcn/final_model/regression_accuracy_allfolds_{}_{}.csv'.format(sampling_type, nseed))
-
-        concatenated_df = pd.concat(all_results_df, ignore_index=True)
-        epa_columns = concatenated_df.filter(like='epa').columns  
-        neglog_columns = concatenated_df.filter(like='neglogld50').columns
-
-        grouped_df = concatenated_df.groupby('smiles').agg(
-			{**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
-			**{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
-		).reset_index()
-
-        grouped_df['prediction_epa_from_neglog'] = convert_to_epa(grouped_df['prediction_neglogld50'], smiles=grouped_df['smiles'])
-        gcn_results[i] = grouped_df
-
-    
-    # Save
-    all_seeds_str = '_'.join(all_seeds)
-    all_results_gcns = pd.concat(gcn_results.values(), ignore_index=True)
-    all_results_gcns.groupby('smiles').agg(
-            {**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
-            **{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
-        ).reset_index()
-    all_results_gcns.to_csv('../../data/replication_gcn/final_model/regression_gcn_{}_{}_training.csv'.format(all_seeds_str, args.split))
+                temp_df = pd.DataFrame([{
+                        'model': 'GCN',
+                        'r2': r2_score(df['actual_neglogld50'], df['prediction_neglogld50']),
+                        'mae': mean_absolute_error(df['actual_neglogld50'], df['prediction_neglogld50']),
+                        'variance': variance_of_residuals(df['actual_neglogld50'], df['prediction_neglogld50']),
+                        'rmse': root_mean_squared_error(df['actual_neglogld50'], df['prediction_neglogld50']),
+                        'rho': spearman_correlation_scorer(df['actual_neglogld50'], df['prediction_neglogld50']),
+                        'accuracy': np.sum(df['actual_epa'] == df['prediction_epa']) / len(df)
+                    }])
+                
+                agg_results = pd.concat([agg_results, temp_df], ignore_index=True)
+                
+            agg_results.to_csv('../../data/replication_gcn/final_model/regression_accuracy_allfolds_{}_{}_{}.csv'.format(sampling_type, lr_name, dim_name))
