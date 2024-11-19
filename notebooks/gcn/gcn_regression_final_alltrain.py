@@ -33,28 +33,50 @@ import torch_geometric.nn as gnn
 import matplotlib.pyplot as plt
 from sklearn.metrics import ConfusionMatrixDisplay
 from sklearn.metrics import r2_score, mean_absolute_error, root_mean_squared_error, mean_squared_error
+from sklearn.model_selection import train_test_split
 from scipy.stats import spearmanr
 import seaborn as sns
 
-# Dataset loader
-def load_data(task_type):
+import pickle
+import random
+
+def load_data(task_type, random_state = 42):
     # Load the dataset
     ldtoxdb = pd.read_csv('../../data/full_dataset.csv')
+
+    # Filter the dataset based on 'pfas_like'
+    df_true = ldtoxdb[ldtoxdb['is_pfas_like'] == True]
+    df_false = ldtoxdb[ldtoxdb['is_pfas_like'] == False]
+        
+    # Split the `True` 'pfas_like' samples, making sure exactly 460 go into the training set
+    train_true, val_true = train_test_split(df_true, test_size=0.1, random_state=random_state, stratify=df_true['epa'])
+
+    # Split the `False` 'pfas_like' samples into training and validation sets (randomly)
+    train_false, val_false = train_test_split(df_false, test_size=0.2, random_state=random_state, stratify=df_false['epa'])  # 80%-20% split
+
+    # Combine the splits
+    train_data = pd.concat([train_true, train_false], axis=0)
+    val_data = pd.concat([val_true, val_false], axis=0)
+
+    # Extract the corresponding features (smiles) and target variable (y) for the splits
+    data_x = train_data.smiles.to_numpy().reshape(-1, 1)
+    val_x = val_data.smiles.to_numpy().reshape(-1, 1)
     
-    # Reshape the 'smiles' column into a 2D array
-    x = ldtoxdb.smiles.to_numpy().reshape(-1,1)
-    
-    # Determine the target variable based on sampling type
+    # For classification task, we use the 'epa' column as target, for regression we use 'neglogld50'
     if task_type == 'regression':
-        # For random sampling, use the 'neglogld50' column
-        y = ldtoxdb.neglogld50.to_numpy().reshape(-1,1)
+        data_y = train_data.neglogld50.to_numpy().reshape(-1, 1)
+        val_y = val_data.neglogld50.to_numpy().reshape(-1, 1)
     elif task_type == 'classification':
-        # For stratified sampling, use the 'epa' column
-        y = ldtoxdb.epa.to_numpy().reshape(-1,1)
-    else:
-        raise ValueError("Invalid sampling_type. Must be 'random' or 'stratified'.")
+        data_y = train_data.epa.to_numpy().reshape(-1, 1)
+        val_y = val_data.epa.to_numpy().reshape(-1, 1)
+
+    # Extract the 'epa' column for classification (used for stratified splitting)
+    epa = train_data.epa.to_numpy().reshape(-1, 1)
+    val_epa = val_data.epa.to_numpy().reshape(-1, 1)
     
-    return (x, y, ldtoxdb.epa.to_numpy().reshape(-1,1))
+    # Return the final split data
+    return data_x, val_x, data_y, val_y, epa, val_epa
+
 	
 # Graph
 possible_atom_list = ['S', 'Si', 'F', 'O',
@@ -139,28 +161,43 @@ def get_dataloader(df, index, target, mol_column, batch_size, y_scaler):
     for data, y_i in zip(x, y):
         data.y = torch.tensor([y_i], dtype=torch.float)
     data_loader = DataLoader(x, batch_size=batch_size,
-                             shuffle=True, drop_last=True)
+                             shuffle=True, drop_last=False)
     return data_loader
 
 
 def train_step(model, data_loader, optimizer, scheduler, device):
     model.train()
-    loss_sum = 0
+    total_loss = 0
+
     for data in data_loader:
         data = data.to(device)
         optimizer.zero_grad()
         output = model(data)
+    
         loss = F.mse_loss(output, data.y)
         loss.backward()
-        loss_sum += loss.item() * data.num_graphs
         optimizer.step()
+        total_loss += loss.item()
 
-    n = float(sum([data.num_graphs for data in data_loader]))
-    stats = {'train_loss': loss_sum / n}
+    avg_loss = total_loss / len(data_loader)
     if scheduler:
-        scheduler.step(loss_sum)
-    return stats
+        scheduler.step(avg_loss)
+    return avg_loss
 
+def compute_val_loss(model, data_loader, device):
+    model.eval()  # Set model to evaluation mode
+    total_loss = 0
+
+    with torch.no_grad():
+        for data in data_loader:
+            data = data.to(device)
+            output = model(data)  # Forward pass
+            loss = F.mse_loss(output, data.y)
+            total_loss += loss.item()
+
+    # Average loss for the validation set
+    avg_loss = total_loss / len(data_loader)
+    return avg_loss
 
 def reg_stats(y_true, y_pred):
     r2 = sklearn.metrics.r2_score(y_true, y_pred)
@@ -339,6 +376,7 @@ class molan_model_GCN(torch.nn.Module):
         else:
             x = self.graph_emb(x)
             x = gnn.global_add_pool(x, data.batch)
+            GCN.graph_embs.append(x)
         # NNet
         if self.using_mlp:
             x = self.mlp(x)
@@ -368,11 +406,15 @@ class GCN:
     mlp_act = 'relu'
     mlp_batchnorm = True
     residual = False
-    learning_rate = 0.008117123009364938
+    learning_rate = 0.001
     batch_size = 64
-    epochs = 500
+    epochs = 200
     node_dim = n_atom_features()
     edge_dim = n_bond_features()
+    val_data = None
+    val_loss = []
+    train_loss = []
+    graph_embs = []
 
     def fit(self, x_train, y_train):
         torch.manual_seed(self.seed)
@@ -395,6 +437,15 @@ class GCN:
             data.y = torch.tensor(y, dtype=torch.float)
 
         loader = DataLoader(x_train, batch_size=self.batch_size,
+            shuffle=False, drop_last=False)
+        
+        x_val, y_val = self.val_data
+        x_val = [mol2torchdata(Chem.MolFromSmiles(smile)) for smile in x_val.flatten()]
+
+        for val_data, val_y in zip(x_val, y_val):
+            val_data.y = torch.tensor(val_y, dtype=torch.float)
+
+        val_loader = DataLoader(x_val, batch_size=self.batch_size,
             shuffle=False, drop_last=True)
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -405,10 +456,11 @@ class GCN:
                         factor = 0.5,
                         patience = 20,
                         verbose = True)
-
+        
         for i in range(self.epochs):
             print('Step %d/%d' % (i+1, self.epochs))
-            train_step(self.model, loader, optimizer, scheduler, self.device)
+            self.train_loss.append(train_step(self.model, loader, optimizer, scheduler, self.device))
+            self.val_loss.append([compute_val_loss(self.model,val_loader,self.device)])
 
     def predict(self, x_in):
         # should drop_last=False
@@ -502,11 +554,14 @@ def spearman_correlation_scorer(actual_y, pred_y):
     rho, _ = spearmanr(actual_y, pred_y)
     return rho
 
-def initialize_weights(model):
+def initialize_weights(model, seed):
     '''Takes in a module and initializes all linear layers with weight
     values taken from a normal distribution.
     from https://stackoverflow.com/a/55546528
     '''
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
     classname = model.__class__.__name__
     # for every Linear layer in a model..
     if classname.find('Linear') != -1:
@@ -533,116 +588,90 @@ def convert_to_epa(neglog_values, smiles):
 if __name__ == "__main__":
     # Set up argument parsing
     parser = argparse.ArgumentParser(description="Run GCN model")
-    parser.add_argument("--split", choices=['random','stratified'], required=True, help="The type of split to use.", default="random")
-    parser.add_argument("--epochs", type=int, help="Number of epochs (1 to 500)", default=500)
-    
+   
     # Parse arguments
     args = parser.parse_args()
+
+    folder_paths = ['../../data/replication_gcn/final_model_test','../../data/replication_gcn/final_model_test/loss','../../data/replication_gcn/final_model_test/graph_embeddings','../../data/replication_gcn/final_model_test/benchmark-models','../../data/replication_gcn/final_model_test/chkpts']
+
+    for path in folder_paths:
+        # Check if the folder exists, and create it if it does not
+        if not os.path.exists(path):
+            os.makedirs(path)
+            print(f"Folder '{path}' created.")
+        else:
+            print(f"Folder '{path}' already exists.")
 	
 	# GCN
     benchmark = {'model': GCN, 'encoding': 'smiles'}
-	 
-	# `random` or `stratified`
-    sampling_type = args.split
 
 	# Call converter
     converter = LD50UnitConverter()
 
-	# Load data
-    data_x, data_y, epa=load_data(task_type='regression')
-
-	# Set seed and start dict with results
-    all_seeds = list()
-    gcn_results = dict()
-
-    for i in range(3):
-		
-        # Random seed
-        nseed = np.random.randint(0, 10000)
-
-        all_seeds.append(str(nseed)) # to keep track of whayt seeds were used
-
-        kfold = CrossValidator(
-		splits = 5, 
-		sampling_type = sampling_type,
-		seed = nseed
-		)
-		
-        all_results = []
-		
-        folds = enumerate(kfold.get_folds(
-        x=data_x,
-        y=data_y,
-        c=epa))
-
-        print('Working with seed {}'.format(nseed))
-
-        for fold_no, (train, test) in folds:           
-            x_train, y_train, smiles_train = train
-            x_test, y_test, smiles_test = test
-
-            y_train = scaler.fit_transform(y_train)
-
-            model = benchmark['model']()
-            model.seed = nseed
-            model.epochs = args.epochs
-            initialize_weights(model)
-            model.fit(x_train, y_train)
-			
-            y_hat = scaler.inverse_transform(model.predict(x_test))
-
-            results = pd.DataFrame({
-				'smiles': smiles_test.flatten(),
-				'prediction_neglogld50': y_hat.flatten(),
-				'prediction_mgkg': converter.convert_to_mgkg(y_hat, smiles_test),
-				'prediction_epa': converter.convert_to_epa(y_hat, smiles_test),
-				'actual_neglogld50': y_test.flatten(),
-				'actual_mgkg': converter.convert_to_mgkg(y_test, smiles_test),
-				'actual_epa': converter.convert_to_epa(y_test, smiles_test),
-			})
-            results.to_csv('../../data/benchmark-models/{}_predictions_rep_{}_{}.csv'.format(sampling_type, nseed, fold_no))
-            all_results.append(results)
-		
-        agg_results = pd.DataFrame()
-
-        for df in all_results:
-            required_columns = {'actual_neglogld50', 'prediction_neglogld50', 'actual_epa', 'prediction_epa'}
-			
-            if not required_columns.issubset(df.columns):
-                raise ValueError("One or more required columns are missing from the input DataFrame.")
-
-            temp_df = pd.DataFrame([{
-					'model': 'GCN',
-					'r2': r2_score(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'mae': mean_absolute_error(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'variance': variance_of_residuals(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'rmse': root_mean_squared_error(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'rho': spearman_correlation_scorer(df['actual_neglogld50'], df['prediction_neglogld50']),
-					'accuracy': np.sum(df['actual_epa'] == df['prediction_epa']) / len(df)
-				}])
-			
-            agg_results = pd.concat([agg_results, temp_df], ignore_index=True)
-			
-        overall_results = agg_results.pivot_table(index='model', aggfunc=np.mean)
-        overall_results.to_csv('../../data/benchmark-models/{}_predictions_rep_{}_allfolds.csv'.format(sampling_type, nseed))
-
-        concatenated_df = pd.concat(all_results, ignore_index=True)
-        epa_columns = concatenated_df.filter(like='epa').columns  
-        neglog_columns = concatenated_df.filter(like='neglogld50').columns
-
-        grouped_df = concatenated_df.groupby('smiles').agg(
-			{**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
-			**{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
-		).reset_index()
-
-        grouped_df['prediction_epa_from_neglog'] = convert_to_epa(grouped_df['prediction_neglogld50'], smiles=grouped_df['smiles'])
-        gcn_results[i] = grouped_df
+    # Load data
+    train_x, test_x, train_y, test_y, train_epa, test_epa = load_data(task_type='regression')
     
-    # Save
-    all_seeds_str = '_'.join(all_seeds)
-    all_results_gcns = pd.concat(gcn_results.values(), ignore_index=True)
-    all_results_gcns.groupby('smiles').agg(
-            {**{col: 'mean' for col in neglog_columns},  # Mean for neglog columns
-            **{col: lambda x: x.mode()[0] if not x.mode().empty else None for col in epa_columns}}  # Mode for EPA columns
-        ).reset_index()
-    all_results_gcns.to_csv('../../data/replication_gcn/gcn_{}_{}.csv'.format(all_seeds_str, args.split))
+	# Set seed and start dict with results
+    gcn_results = dict()
+    
+    def generate_additional_seeds(master_seed):
+        # Set the initial random seed using the master seed
+        random.seed(master_seed)
+        
+        # Generate three additional seeds based on the master seed
+        seed1 = random.randint(1, 1000000)
+        seed2 = random.randint(1, 1000000)
+        seed3 = random.randint(1, 1000000)
+        
+        # Return the three new seeds
+        return seed1, seed2, seed3
+    
+    seed_list = generate_additional_seeds(630)
+
+    # Three GCNs with randomly initialized weights
+    i = 1
+    for nseed in seed_list:  
+        
+        model = benchmark['model']()
+        model.seed = nseed
+        model.epochs = 25
+        model.learning_rate = 0.001
+        model.emb_dim = 100
+
+        initialize_weights(model, seed=nseed)
+        
+        train_y_scaled = scaler.fit_transform(train_y)
+
+        # For loss curve
+        model.val_data = (test_x, test_y)
+
+        # Fit model
+        model.fit(train_x, train_y_scaled)
+        
+        fn = 'gcn_regression_gcn' + str(i) + '_lr0001_dim100'
+        model.save_weights('../../data/replication_gcn/final_model_test/chkpts/{}.chkpt'.format(fn))
+        
+        y_hat = scaler.inverse_transform(model.predict(test_x))
+
+        results = pd.DataFrame({
+            'smiles': test_x.flatten(),
+            'prediction_neglogld50': y_hat.flatten(),
+            'prediction_mgkg': converter.convert_to_mgkg(y_hat, test_x),
+            'prediction_epa': converter.convert_to_epa(y_hat, test_x),
+            'actual_neglogld50': test_y.flatten(),
+            'actual_mgkg': converter.convert_to_mgkg(test_y, test_x),
+            'actual_epa': converter.convert_to_epa(test_y, test_x),
+        })
+
+        results.to_csv('../../data/replication_gcn/final_model_test/benchmark-models/{}_predictions_test.csv'.format(fn))
+        
+        pd.DataFrame(model.train_loss).to_csv('../../data/replication_gcn/final_model_test/loss/{}_loss_train.csv'.format(fn))
+        pd.DataFrame(model.val_loss).to_csv('../../data/replication_gcn/final_model_test/loss/{}_loss_test.csv'.format(fn))
+    
+        model.val_loss = []
+        model.train_loss = []
+        embs_array = model.graph_embs
+    
+        with open('../../data/replication_gcn/final_model_test/graph_embeddings/regression_gcn{}_graphs.pickle'.format(i), 'wb') as handle:
+            pickle.dump(embs_array, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        i+=1
