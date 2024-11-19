@@ -44,11 +44,11 @@ ai4pfas/
 ¦   ¦  +-- 03_folds_results.ipynb
 ¦   ¦  +-- 03_loss_plots.ipynb
 ¦   ¦  +-- 03_test_results.ipynb
-¦   ¦  +-- benchmarks_gcn_output.ipynb
-¦   ¦  +-- gcn_classification_final.py
-¦   ¦  +-- gcn_classification_final_alltrain.py
-¦   ¦  +-- gcn_regression_final.py
-¦   ¦  +-- gcn_regression_final_alltrain.py
+¦   ¦  +-- benchmarks_gcn_output.ipynb (original authors' file)
+¦   ¦  +-- gcn_classification_final.py (run cross-validation)
+¦   ¦  +-- gcn_classification_final_alltrain.py (run on test data)
+¦   ¦  +-- gcn_regression_final.py (run cross-validation)
+¦   ¦  +-- gcn_regression_final_alltrain.py (run on test data)
 ¦   +-- gp/
 ¦   +-- rf/
 +-- src/
