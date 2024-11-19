@@ -1,17 +1,7 @@
-
-~~~
-    ______                  _____   _  _     _____  ______       _____ 
-   / \  / \           /\   |_   _| | || |   |  __ \|  ____/\    / ____|
-  /   /\   \         /  \    | |   | || |_  | |__) | |__ /  \  | (___  
- /   /  \   \       / /\ \   | |   |__   _| |  ___/|  __/ /\ \  \___ \ 
- \--/----\--/      / ____ \ _| |_     | |   | |    | | / ____ \ ____) | 
-  \/______\/      /_/    \_\_____|    |_|   |_|    |_|/_/    \_\_____/   
-~~~
-
 # AI for PFAS
 <img src='./media/toc-ai4pfas-01.svg' alt='AI for PFAS workflow can drive future experiments by making an informed decision based on uncertainty to select chemicals for prediction and future study.'></img>
 
-A deep learning expedition into PFAS toxicity. The manuscript can be accessed [here](https://pubs.acs.org/doi/10.1021/acs.jcim.1c01204).
+A replication of the work by Feinstein, Jeremy and Sivaraman, Ganesh and Picel, Kurt and Peters, Brian and Vázquez-Mayagoitia, Álvaro and Ramanathan, Arvind and MacDonell, Margaret and Foster, Ian and Yan, Eugene. 'A deep learning expedition into PFAS toxicity'. The manuscript can be accessed [here](https://pubs.acs.org/doi/10.1021/acs.jcim.1c01204).
 
 ##### Contents
  1. [Brief](#brief)
@@ -19,8 +9,8 @@ A deep learning expedition into PFAS toxicity. The manuscript can be accessed [h
  2. [Dataset](#dataset)
  3. [Installation](#installation)
 
-## Brief
-This repository contains code, instructions, and data used in the LDRD deep learning expedition on PFAS toxicity.
+## Summary
+This repository contains the code and data used for replication of the study by Feinstein et al, 2021. It also contains the code for the further work to improve on the authors' code.
 
 ##### Repository structure
 ~~~
@@ -44,16 +34,23 @@ ai4pfas/
 ¦   +-- pfas8k-mordred.csv
 +-- media/
 +-- notebooks/
-¦   +-- benchmarks/
-¦   ¦   +-- benchmarks.ipynb
-¦   ¦   +-- tuning-dnn-ecfp.ipynb
-¦   ¦   +-- tuning-dnn-mordred.ipynb
-¦   ¦   +-- tuning-dnn-mordred-pfas-like-excluded.ipynb
-¦   ¦   +-- tuning-nmf.ipynb
-¦   ¦   +-- tuning-rf-mordred.ipynb
-¦   +-- selective-net.ipynb
-¦   +-- transfer-learning.ipynb
-¦   +-- uncertainty.ipynb
+¦   +-- dnn/
+¦   +-- gcn/
+¦   ¦  +-- 00_process_data.ipynb
+¦   ¦  +-- 00_process_data.py
+¦   ¦  +-- 00_process_data_duplicates.ipynb
+¦   ¦  +-- 02_tanimoto_similarity.ipynb
+¦   ¦  +-- 03_boxplots.ipynb
+¦   ¦  +-- 03_folds_results.ipynb
+¦   ¦  +-- 03_loss_plots.ipynb
+¦   ¦  +-- 03_test_results.ipynb
+¦   ¦  +-- benchmarks_gcn_output.ipynb
+¦   ¦  +-- gcn_classification_final.py
+¦   ¦  +-- gcn_classification_final_alltrain.py
+¦   ¦  +-- gcn_regression_final.py
+¦   ¦  +-- gcn_regression_final_alltrain.py
+¦   +-- gp/
+¦   +-- rf/
 +-- src/
 ¦   +-- graphnn/
 ¦   +-- dataset.py
@@ -67,33 +64,19 @@ ai4pfas/
 ~~~
 
 ## Context
- - **Polyfluoroalkyl and perfluoroaklyl** *(PFAS)* - a family of organic industrial synthetics of increasing federal concern for unknown hazards and widespread contamination of DOD & DOE sites
- - **Acute oral rat toxicity** *(LD50)* - a nonspecific quantification of toxicity which measures the minimum 24-hr drug dose to induce 50% lethality in a sample of labratory rats
- - **LDToxDB** - shorthand for the compiled LD50 dataset
-
+The replication was completed as part of a task in a course project within the Master of Applied Data Science at the University of Gothenburg, Sweden.
 ## Dataset
 LDToxDB was created by compiling LD50 datasets from the [EPA Toxicity Estimation Software Tool (TEST)](https://www.epa.gov/chemical-research/toxicity-estimation-software-tool-test), [NIH Collaborative Acute Toxicity Modeling Suite (CATMoS)](https://ntp.niehs.nih.gov/iccvamreport/2019/technology/comp-tools-dev/catmos/index.html), and National Toxicology Program (NTP). Values represent experimental LD50 measurements in -log(mol/kg). Chemical duplicates were identified by InChIKey and removed.
 
 ## Installation
 ### Requirements
-The workflow requires Python 3.7 and relevant packages. Install Anaconda and run the following terminal commands to create an environment based on the repository requirements:
+The workflow requires Python 3.11 and relevant packages. Install Anaconda and run the following terminal commands to create an environment based on the repository requirements:
 ~~~
 (base) $ conda create -n ai4pfas -f environment.yml
 (base) $ conda activate ai4pfas
 ~~~
 
-### Running the repo
-Start a Jupyter Notebook instance from the terminal and navigate within the UI to execute `.ipynb` files.
-~~~
-(ai4pfas) $ jupyter notebook
-~~~
-
-Python files are directly executable from within the terminal.
-~~~
-(ai4pfas) $ python ./src/deep-ensemble.py
-~~~
-
-### How to cite ?
+### How to cite the original authors?
 If you are using the AI4PFAS workflow in your research, please cite us as
 ```
 @article{doi:10.1021/acs.jcim.1c01204,
@@ -110,6 +93,3 @@ eprint = {
 }
 }
 ```
-
-## Acknowledgements
-This  material  is  based  upon  work  supported  by  Laboratory  Directed  Research  and  Development (LDRD) funding from Argonne National Laboratory, provided by the Director, Office of Science, of the U.S. Department of Energy under Contract No. DE-AC02-06CH11357.
