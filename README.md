@@ -44,6 +44,7 @@ ai4pfas/
 ¦   ¦  +-- 03_folds_results.ipynb
 ¦   ¦  +-- 03_loss_plots.ipynb
 ¦   ¦  +-- 03_test_results.ipynb
+¦   ¦  +-- 03_outliers.ipynb
 ¦   ¦  +-- benchmarks_gcn_output.ipynb (original authors' file)
 ¦   ¦  +-- gcn_classification_final.py (run cross-validation)
 ¦   ¦  +-- gcn_classification_final_alltrain.py (run on test data)
